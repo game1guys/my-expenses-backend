@@ -7,5 +7,8 @@ const router = (0, express_1.Router)();
 router.use(auth_middleware_1.requireAuth);
 router.get('/', party_controller_1.getParties);
 router.post('/', party_controller_1.createParty);
+router.put('/:id', party_controller_1.updateParty);
+router.delete('/:id', party_controller_1.deleteParty);
 router.post('/udhar-transaction', party_controller_1.addUdharTransaction);
+router.post('/trigger-reminder', party_controller_1.triggerManualReminder);
 exports.default = router;

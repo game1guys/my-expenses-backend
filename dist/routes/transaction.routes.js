@@ -8,4 +8,7 @@ router.use(auth_middleware_1.requireAuth);
 router.post('/', transaction_controller_1.addTransaction);
 router.get('/', transaction_controller_1.getTransactions);
 router.get('/summary', transaction_controller_1.getSummary);
+router.get('/:id', transaction_controller_1.getTransactionById);
+router.put('/:id', transaction_controller_1.updateTransaction);
+router.delete('/:id', transaction_controller_1.deleteTransaction);
 exports.default = router;

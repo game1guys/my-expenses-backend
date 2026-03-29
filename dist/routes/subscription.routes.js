@@ -1,0 +1,9 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const subscription_controller_1 = require("../controllers/subscription.controller");
+const auth_middleware_1 = require("../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+router.post('/create-order', auth_middleware_1.requireAuth, subscription_controller_1.createOrder);
+router.post('/verify-payment', auth_middleware_1.requireAuth, subscription_controller_1.verifyPayment);
+exports.default = router;

@@ -10,4 +10,5 @@ router.get('/monthly-bar', analytics_controller_1.getMonthlyBarGraph);
 router.get('/weekly-trend', analytics_controller_1.getWeeklyTrends);
 router.get('/compare-days', analytics_controller_1.compareDates);
 router.get('/category-chart', analytics_controller_1.getCategoryDistribution);
+router.get('/overview', analytics_controller_1.getSpendingOverview);
 exports.default = router;
