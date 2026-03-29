@@ -1,63 +1,86 @@
 import { Response } from 'express';
 import { supabase } from '../database/supabase';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { StorageService } from '../services/storage.service';
 
 export const addTransaction = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
-  const userId = req.user?.id;
-  const { amount, category_id, type, note, transaction_date, receipt_url, party_id, party_name } = req.body;
+  try {
+    const userId = req.user?.id;
+    const { amount, category_id, type, note, transaction_date, party_id, party_name, udhar_type } = req.body;
 
-  if (!amount || !type || !category_id) {
-    return res.status(400).json({ error: 'Amount, type, and category_id are mathematically required.' });
+    if (!amount || !type || !category_id) {
+      return res.status(400).json({ error: 'Amount, type, and category_id are mathematically required.' });
+    }
+
+    // Upload Invoice if present
+    let receipt_url = req.body.receipt_url;
+    if (req.file) {
+      try {
+        receipt_url = await StorageService.uploadFile('invoices', String(userId), req.file);
+      } catch (err) {
+        console.error('Invoice upload failed:', err);
+      }
+    }
+
+    // Validate Category and Type
+    const { data: category, error: catError } = await supabase
+      .from('categories')
+      .select('type')
+      .eq('id', category_id)
+      .single();
+
+    if (catError || !category) {
+      return res.status(400).json({ error: 'Invalid category selected.' });
+    }
+
+    if (category.type !== type) {
+      return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
+    }
+
+    // Intelligent Udhar Node Resolution
+    let resolvedPartyId = party_id;
+    if (!resolvedPartyId && party_name) {
+      const { data: newParty, error: pError } = await supabase
+        .from('parties')
+        .insert([{ user_id: userId, name: party_name }])
+        .select()
+        .single();
+      if (!pError && newParty) {
+        resolvedPartyId = newParty.id;
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert([{
+        user_id: userId,
+        amount: Number(amount), // Ensure number
+        category_id,
+        party_id: resolvedPartyId || null,
+        type,
+        note,
+        transaction_date: transaction_date || new Date().toISOString(),
+        receipt_url
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    // Handle Udhar Transaction if needed
+    if (udhar_type && resolvedPartyId) {
+      await supabase.from('parties').update({
+        reminders_sent_today: 0, // Reset for new debt
+      }).eq('id', resolvedPartyId);
+    }
+
+    return res.status(201).json({ transaction: data });
+  } catch (err: any) {
+    console.error('Add Transaction Error:', err);
+    return res.status(500).json({ error: err.message || 'Server side error' });
   }
-
-  // Validate Category and Type
-  const { data: category, error: catError } = await supabase
-    .from('categories')
-    .select('type')
-    .eq('id', category_id)
-    .single();
-
-  if (catError || !category) {
-    return res.status(400).json({ error: 'Invalid category selected.' });
-  }
-
-  if (category.type !== type) {
-    return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
-  }
-
-  // Intelligent Udhar Node Resolution
-  let resolvedPartyId = party_id;
-  if (!resolvedPartyId && party_name) {
-     const { data: newParty, error: pError } = await supabase
-       .from('parties')
-       .insert([{ user_id: userId, name: party_name }])
-       .select()
-       .single();
-     if (!pError && newParty) {
-       resolvedPartyId = newParty.id;
-     }
-  }
-
-  const { data, error } = await supabase
-    .from('transactions')
-    .insert([{
-      user_id: userId,
-      amount,
-      category_id,
-      party_id: resolvedPartyId || null,
-      type,
-      note,
-      transaction_date: transaction_date || new Date().toISOString(),
-      receipt_url
-    }])
-    .select()
-    .single();
-
-  if (error) {
-    return res.status(400).json({ error: error.message });
-  }
-
-  return res.status(201).json({ transaction: data });
 };
 
 export const getTransactions = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
@@ -149,63 +172,78 @@ export const getTransactionById = async (req: AuthenticatedRequest, res: Respons
 };
 
 export const updateTransaction = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
-  const userId = req.user?.id;
-  const { id } = req.params;
-  const { amount, category_id, type, note, transaction_date, receipt_url, party_id, party_name } = req.body;
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    const { amount, category_id, type, note, transaction_date, party_id, party_name } = req.body;
 
-  if (!amount || !type || !category_id) {
-    return res.status(400).json({ error: 'Amount, type, and category_id are mathematically required.' });
+    if (!amount || !type || !category_id) {
+      return res.status(400).json({ error: 'Amount, type, and category_id are mathematically required.' });
+    }
+
+    // Upload Invoice if present
+    let receipt_url = req.body.receipt_url;
+    if (req.file) {
+      try {
+        receipt_url = await StorageService.uploadFile('invoices', String(userId), req.file);
+      } catch (err) {
+        console.error('Invoice upload failed:', err);
+      }
+    }
+
+    // Validate Category and Type
+    const { data: category, error: catError } = await supabase
+      .from('categories')
+      .select('type')
+      .eq('id', category_id)
+      .single();
+
+    if (catError || !category) {
+      return res.status(400).json({ error: 'Invalid category selected.' });
+    }
+
+    if (category.type !== type) {
+      return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
+    }
+
+    // Intelligent Udhar Node Resolution
+    let resolvedPartyId = party_id;
+    if (!resolvedPartyId && party_name) {
+      const { data: newParty, error: pError } = await supabase
+        .from('parties')
+        .insert([{ user_id: userId, name: party_name }])
+        .select()
+        .single();
+      if (!pError && newParty) {
+        resolvedPartyId = newParty.id;
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .update({
+        amount: Number(amount),
+        category_id,
+        party_id: resolvedPartyId || null,
+        type,
+        note,
+        transaction_date,
+        receipt_url
+      })
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    return res.status(200).json({ transaction: data });
+  } catch (err: any) {
+    console.error('Update Transaction Error:', err);
+    return res.status(500).json({ error: err.message || 'Server side error' });
   }
-
-  // Validate Category and Type
-  const { data: category, error: catError } = await supabase
-    .from('categories')
-    .select('type')
-    .eq('id', category_id)
-    .single();
-
-  if (catError || !category) {
-    return res.status(400).json({ error: 'Invalid category selected.' });
-  }
-
-  if (category.type !== type) {
-    return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
-  }
-
-  // Intelligent Udhar Node Resolution
-  let resolvedPartyId = party_id;
-  if (!resolvedPartyId && party_name) {
-     const { data: newParty, error: pError } = await supabase
-       .from('parties')
-       .insert([{ user_id: userId, name: party_name }])
-       .select()
-       .single();
-     if (!pError && newParty) {
-       resolvedPartyId = newParty.id;
-     }
-  }
-
-  const { data, error } = await supabase
-    .from('transactions')
-    .update({
-      amount,
-      category_id,
-      party_id: resolvedPartyId || null,
-      type,
-      note,
-      transaction_date,
-      receipt_url
-    })
-    .eq('id', id)
-    .eq('user_id', userId)
-    .select()
-    .single();
-
-  if (error) {
-    return res.status(400).json({ error: error.message });
-  }
-
-  return res.status(200).json({ transaction: data });
 };
 
 export const deleteTransaction = async (req: AuthenticatedRequest, res: Response): Promise<any> => {

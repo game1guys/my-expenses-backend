@@ -11,55 +11,78 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteTransaction = exports.updateTransaction = exports.getTransactionById = exports.getSummary = exports.getTransactions = exports.addTransaction = void 0;
 const supabase_1 = require("../database/supabase");
+const storage_service_1 = require("../services/storage.service");
 const addTransaction = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
-    const { amount, category_id, type, note, transaction_date, receipt_url, party_id, party_name } = req.body;
-    if (!amount || !type || !category_id) {
-        return res.status(400).json({ error: 'Amount, type, and category_id are mathematically required.' });
-    }
-    // Validate Category and Type
-    const { data: category, error: catError } = yield supabase_1.supabase
-        .from('categories')
-        .select('type')
-        .eq('id', category_id)
-        .single();
-    if (catError || !category) {
-        return res.status(400).json({ error: 'Invalid category selected.' });
-    }
-    if (category.type !== type) {
-        return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
-    }
-    // Intelligent Udhar Node Resolution
-    let resolvedPartyId = party_id;
-    if (!resolvedPartyId && party_name) {
-        const { data: newParty, error: pError } = yield supabase_1.supabase
-            .from('parties')
-            .insert([{ user_id: userId, name: party_name }])
+    try {
+        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
+        const { amount, category_id, type, note, transaction_date, party_id, party_name, udhar_type } = req.body;
+        if (!amount || !type || !category_id) {
+            return res.status(400).json({ error: 'Amount, type, and category_id are mathematically required.' });
+        }
+        // Upload Invoice if present
+        let receipt_url = req.body.receipt_url;
+        if (req.file) {
+            try {
+                receipt_url = yield storage_service_1.StorageService.uploadFile('invoices', String(userId), req.file);
+            }
+            catch (err) {
+                console.error('Invoice upload failed:', err);
+            }
+        }
+        // Validate Category and Type
+        const { data: category, error: catError } = yield supabase_1.supabase
+            .from('categories')
+            .select('type')
+            .eq('id', category_id)
+            .single();
+        if (catError || !category) {
+            return res.status(400).json({ error: 'Invalid category selected.' });
+        }
+        if (category.type !== type) {
+            return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
+        }
+        // Intelligent Udhar Node Resolution
+        let resolvedPartyId = party_id;
+        if (!resolvedPartyId && party_name) {
+            const { data: newParty, error: pError } = yield supabase_1.supabase
+                .from('parties')
+                .insert([{ user_id: userId, name: party_name }])
+                .select()
+                .single();
+            if (!pError && newParty) {
+                resolvedPartyId = newParty.id;
+            }
+        }
+        const { data, error } = yield supabase_1.supabase
+            .from('transactions')
+            .insert([{
+                user_id: userId,
+                amount: Number(amount), // Ensure number
+                category_id,
+                party_id: resolvedPartyId || null,
+                type,
+                note,
+                transaction_date: transaction_date || new Date().toISOString(),
+                receipt_url
+            }])
             .select()
             .single();
-        if (!pError && newParty) {
-            resolvedPartyId = newParty.id;
+        if (error) {
+            return res.status(400).json({ error: error.message });
         }
+        // Handle Udhar Transaction if needed
+        if (udhar_type && resolvedPartyId) {
+            yield supabase_1.supabase.from('parties').update({
+                reminders_sent_today: 0, // Reset for new debt
+            }).eq('id', resolvedPartyId);
+        }
+        return res.status(201).json({ transaction: data });
     }
-    const { data, error } = yield supabase_1.supabase
-        .from('transactions')
-        .insert([{
-            user_id: userId,
-            amount,
-            category_id,
-            party_id: resolvedPartyId || null,
-            type,
-            note,
-            transaction_date: transaction_date || new Date().toISOString(),
-            receipt_url
-        }])
-        .select()
-        .single();
-    if (error) {
-        return res.status(400).json({ error: error.message });
+    catch (err) {
+        console.error('Add Transaction Error:', err);
+        return res.status(500).json({ error: err.message || 'Server side error' });
     }
-    return res.status(201).json({ transaction: data });
 });
 exports.addTransaction = addTransaction;
 const getTransactions = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -145,55 +168,71 @@ const getTransactionById = (req, res) => __awaiter(void 0, void 0, void 0, funct
 exports.getTransactionById = getTransactionById;
 const updateTransaction = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
-    const { id } = req.params;
-    const { amount, category_id, type, note, transaction_date, receipt_url, party_id, party_name } = req.body;
-    if (!amount || !type || !category_id) {
-        return res.status(400).json({ error: 'Amount, type, and category_id are mathematically required.' });
-    }
-    // Validate Category and Type
-    const { data: category, error: catError } = yield supabase_1.supabase
-        .from('categories')
-        .select('type')
-        .eq('id', category_id)
-        .single();
-    if (catError || !category) {
-        return res.status(400).json({ error: 'Invalid category selected.' });
-    }
-    if (category.type !== type) {
-        return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
-    }
-    // Intelligent Udhar Node Resolution
-    let resolvedPartyId = party_id;
-    if (!resolvedPartyId && party_name) {
-        const { data: newParty, error: pError } = yield supabase_1.supabase
-            .from('parties')
-            .insert([{ user_id: userId, name: party_name }])
+    try {
+        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
+        const { id } = req.params;
+        const { amount, category_id, type, note, transaction_date, party_id, party_name } = req.body;
+        if (!amount || !type || !category_id) {
+            return res.status(400).json({ error: 'Amount, type, and category_id are mathematically required.' });
+        }
+        // Upload Invoice if present
+        let receipt_url = req.body.receipt_url;
+        if (req.file) {
+            try {
+                receipt_url = yield storage_service_1.StorageService.uploadFile('invoices', String(userId), req.file);
+            }
+            catch (err) {
+                console.error('Invoice upload failed:', err);
+            }
+        }
+        // Validate Category and Type
+        const { data: category, error: catError } = yield supabase_1.supabase
+            .from('categories')
+            .select('type')
+            .eq('id', category_id)
+            .single();
+        if (catError || !category) {
+            return res.status(400).json({ error: 'Invalid category selected.' });
+        }
+        if (category.type !== type) {
+            return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
+        }
+        // Intelligent Udhar Node Resolution
+        let resolvedPartyId = party_id;
+        if (!resolvedPartyId && party_name) {
+            const { data: newParty, error: pError } = yield supabase_1.supabase
+                .from('parties')
+                .insert([{ user_id: userId, name: party_name }])
+                .select()
+                .single();
+            if (!pError && newParty) {
+                resolvedPartyId = newParty.id;
+            }
+        }
+        const { data, error } = yield supabase_1.supabase
+            .from('transactions')
+            .update({
+            amount: Number(amount),
+            category_id,
+            party_id: resolvedPartyId || null,
+            type,
+            note,
+            transaction_date,
+            receipt_url
+        })
+            .eq('id', id)
+            .eq('user_id', userId)
             .select()
             .single();
-        if (!pError && newParty) {
-            resolvedPartyId = newParty.id;
+        if (error) {
+            return res.status(400).json({ error: error.message });
         }
+        return res.status(200).json({ transaction: data });
     }
-    const { data, error } = yield supabase_1.supabase
-        .from('transactions')
-        .update({
-        amount,
-        category_id,
-        party_id: resolvedPartyId || null,
-        type,
-        note,
-        transaction_date,
-        receipt_url
-    })
-        .eq('id', id)
-        .eq('user_id', userId)
-        .select()
-        .single();
-    if (error) {
-        return res.status(400).json({ error: error.message });
+    catch (err) {
+        console.error('Update Transaction Error:', err);
+        return res.status(500).json({ error: err.message || 'Server side error' });
     }
-    return res.status(200).json({ transaction: data });
 });
 exports.updateTransaction = updateTransaction;
 const deleteTransaction = (req, res) => __awaiter(void 0, void 0, void 0, function* () {

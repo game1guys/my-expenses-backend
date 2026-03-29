@@ -4,6 +4,7 @@ import { supabase } from '../database/supabase';
 // Extend Express Request type
 export interface AuthenticatedRequest extends Request {
   user?: any;
+  file?: any;
 }
 
 export const requireAuth = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<any> => {

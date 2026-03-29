@@ -58,6 +58,17 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
     rangeStart = startOfWeekMonday(ref);
     rangeEnd = new Date(addDays(rangeStart, 6));
     rangeEnd.setHours(23, 59, 59, 999);
+  } else if (period === 'quarter') {
+    const quarter = Math.floor(ref.getMonth() / 3);
+    rangeStart = new Date(ref.getFullYear(), quarter * 3, 1, 0, 0, 0, 0);
+    rangeEnd = new Date(ref.getFullYear(), (quarter + 1) * 3, 0, 23, 59, 59, 999);
+  } else if (period === 'half') {
+    const half = Math.floor(ref.getMonth() / 6);
+    rangeStart = new Date(ref.getFullYear(), half * 6, 1, 0, 0, 0, 0);
+    rangeEnd = new Date(ref.getFullYear(), (half + 1) * 6, 0, 23, 59, 59, 999);
+  } else if (period === 'year') {
+    rangeStart = new Date(ref.getFullYear(), 0, 1, 0, 0, 0, 0);
+    rangeEnd = new Date(ref.getFullYear(), 11, 31, 23, 59, 59, 999);
   } else {
     rangeStart = new Date(ref.getFullYear(), ref.getMonth(), 1, 0, 0, 0, 0);
     rangeEnd = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -76,6 +87,15 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
   } else if (period === 'week') {
     prevRangeStart = addDays(rangeStart, -7);
     prevRangeEnd = addDays(rangeEnd, -7);
+  } else if (period === 'quarter') {
+    prevRangeStart = new Date(rangeStart.getFullYear(), rangeStart.getMonth() - 3, 1);
+    prevRangeEnd = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 0, 23, 59, 59, 999);
+  } else if (period === 'half') {
+    prevRangeStart = new Date(rangeStart.getFullYear(), rangeStart.getMonth() - 6, 1);
+    prevRangeEnd = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 0, 23, 59, 59, 999);
+  } else if (period === 'year') {
+    prevRangeStart = new Date(rangeStart.getFullYear() - 1, 0, 1);
+    prevRangeEnd = new Date(rangeStart.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
   } else {
     prevRangeStart = new Date(rangeStart.getFullYear(), rangeStart.getMonth() - 1, 1);
     prevRangeEnd = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 0, 23, 59, 59, 999);

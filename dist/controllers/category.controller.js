@@ -11,6 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createCustomCategory = exports.getCategories = void 0;
 const supabase_1 = require("../database/supabase");
+const storage_service_1 = require("../services/storage.service");
 const getCategories = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
@@ -27,25 +28,41 @@ const getCategories = (req, res) => __awaiter(void 0, void 0, void 0, function* 
 exports.getCategories = getCategories;
 const createCustomCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
-    const { name, type, icon, color } = req.body;
-    if (!name || !type) {
-        return res.status(400).json({ error: 'Name and type are required' });
+    try {
+        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
+        const { name, type, icon, color } = req.body;
+        if (!name || !type) {
+            return res.status(400).json({ error: 'Name and type are required' });
+        }
+        let icon_url = null;
+        if (req.file) {
+            try {
+                icon_url = yield storage_service_1.StorageService.uploadFile('category-icons', String(userId), req.file);
+            }
+            catch (err) {
+                console.error('Category icon upload failed:', err);
+            }
+        }
+        const { data, error } = yield supabase_1.supabase
+            .from('categories')
+            .insert([{
+                user_id: userId,
+                name,
+                type,
+                icon: icon || 'Circle',
+                color: color || '#aaaaaa',
+                icon_url
+            }])
+            .select()
+            .single();
+        if (error) {
+            return res.status(400).json({ error: error.message });
+        }
+        return res.status(201).json({ category: data });
     }
-    const { data, error } = yield supabase_1.supabase
-        .from('categories')
-        .insert([{
-            user_id: userId,
-            name,
-            type,
-            icon: icon || 'Circle',
-            color: color || '#aaaaaa'
-        }])
-        .select()
-        .single();
-    if (error) {
-        return res.status(400).json({ error: error.message });
+    catch (err) {
+        console.error('Create Category Error:', err);
+        return res.status(500).json({ error: err.message || 'Server side error' });
     }
-    return res.status(201).json({ category: data });
 });
 exports.createCustomCategory = createCustomCategory;
