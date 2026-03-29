@@ -1,0 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const party_controller_1 = require("../controllers/party.controller");
+const auth_middleware_1 = require("../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+router.use(auth_middleware_1.requireAuth);
+router.get('/', party_controller_1.getParties);
+router.post('/', party_controller_1.createParty);
+router.post('/udhar-transaction', party_controller_1.addUdharTransaction);
+exports.default = router;

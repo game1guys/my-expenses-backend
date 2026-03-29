@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: daily-khata-backend
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 18.0.0
+      - key: PORT
+        value: 10000
+      - key: SUPABASE_URL
+        fromEnvVar: SUPABASE_URL
+      - key: SUPABASE_ANON_KEY
+        fromEnvVar: SUPABASE_ANON_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        fromEnvVar: SUPABASE_SERVICE_ROLE_KEY
+      - key: JWT_SECRET
+        fromEnvVar: JWT_SECRET
+      - key: RAZORPAY_KEY_ID
+        fromEnvVar: RAZORPAY_KEY_ID
+      - key: RAZORPAY_KEY_SECRET
+        fromEnvVar: RAZORPAY_KEY_SECRET
+      - key: SMTP_USER
+        fromEnvVar: SMTP_USER
+      - key: SMTP_PASS
+        fromEnvVar: SMTP_PASS
