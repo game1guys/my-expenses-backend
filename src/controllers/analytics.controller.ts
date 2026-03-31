@@ -8,7 +8,7 @@ import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 const fetchUserTransactions = async (userId: string) => {
   const { data, error } = await supabase
     .from('transactions')
-    .select('amount, type, category_id, transaction_date, categories(name, color)')
+    .select('amount, type, category_id, transaction_date, categories(name, color, icon_url)')
     .eq('user_id', userId);
   return { data: data || [], error };
 };
@@ -128,8 +128,8 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
   const dailyBuckets = bucketKeys.map((date) => ({ date, income: 0, expense: 0, savings: 0 }));
   const totals = { income: 0, expense: 0, savings: 0 };
   const prevTotals = { income: 0, expense: 0, savings: 0 };
-  const expenseByCategory: Record<string, { value: number; color: string }> = {};
-  const incomeByCategory: Record<string, { value: number; color: string }> = {};
+  const expenseByCategory: Record<string, { value: number; color: string; icon_url: string }> = {};
+  const incomeByCategory: Record<string, { value: number; color: string; icon_url: string }> = {};
 
   data.forEach((trx: any) => {
     const d = String(trx.transaction_date).split('T')[0];
@@ -140,14 +140,16 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
       if (idx >= 0) dailyBuckets[idx].income += amt;
       const catName = trx.categories?.name || 'Uncategorized';
       const color = trx.categories?.color || '#22c55e';
-      if (!incomeByCategory[catName]) incomeByCategory[catName] = { value: 0, color };
+      const icon_url = trx.categories?.icon_url || '';
+      if (!incomeByCategory[catName]) incomeByCategory[catName] = { value: 0, color, icon_url };
       incomeByCategory[catName].value += amt;
     } else if (trx.type === 'expense') {
       totals.expense += amt;
       if (idx >= 0) dailyBuckets[idx].expense += amt;
       const catName = trx.categories?.name || 'Uncategorized';
       const color = trx.categories?.color || '#cbd5e1';
-      if (!expenseByCategory[catName]) expenseByCategory[catName] = { value: 0, color };
+      const icon_url = trx.categories?.icon_url || '';
+      if (!expenseByCategory[catName]) expenseByCategory[catName] = { value: 0, color, icon_url };
       expenseByCategory[catName].value += amt;
     }
   });
@@ -164,9 +166,14 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
   totals.savings = totals.income - totals.expense;
   prevTotals.savings = prevTotals.income - prevTotals.expense;
 
-  const toArr = (rec: Record<string, { value: number; color: string }>) =>
+  const toArr = (rec: Record<string, { value: number; color: string; icon_url: string }>) =>
     Object.keys(rec)
-      .map((name) => ({ name, value: rec[name].value, color: rec[name].color }))
+      .map((name) => ({ 
+        name, 
+        value: rec[name].value, 
+        color: rec[name].color,
+        icon_url: rec[name].icon_url
+      }))
       .sort((a, b) => b.value - a.value);
 
   return res.status(200).json({

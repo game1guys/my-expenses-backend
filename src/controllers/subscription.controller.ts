@@ -25,7 +25,7 @@ export const createOrder = async (req: Request, res: Response) => {
         amount = 199 * 100;
         break;
       case 'premium_life':
-        amount = 399 * 100;
+        amount = 699 * 100;
         break;
       default:
         return res.status(400).json({ error: 'Invalid plan type' });

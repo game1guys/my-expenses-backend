@@ -37,6 +37,40 @@ export const addTransaction = async (req: AuthenticatedRequest, res: Response): 
       return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
     }
 
+    // Check Free Plan Limits (1000 tx/month, 3 parties)
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('subscription_tier')
+      .eq('id', userId)
+      .single();
+
+    if (profile?.subscription_tier === 'free') {
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const { count: txCount } = await supabase
+        .from('transactions')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('transaction_date', startOfMonth.toISOString());
+
+      if (txCount && txCount >= 1000) {
+        return res.status(403).json({ error: 'Monthly transaction limit (1000) reached for Free Plan. Please upgrade to Premium.' });
+      }
+
+      if (!party_id && party_name) {
+        const { count: partyCount } = await supabase
+          .from('parties')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', userId);
+
+        if (partyCount && partyCount >= 3) {
+          return res.status(403).json({ error: 'Party limit (3) reached for Free Plan. Please upgrade to Premium.' });
+        }
+      }
+    }
+
     // Intelligent Udhar Node Resolution
     let resolvedPartyId = party_id;
     if (!resolvedPartyId && party_name) {
