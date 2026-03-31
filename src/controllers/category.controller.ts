@@ -109,3 +109,31 @@ export const updateCategoryBudget = async (req: AuthenticatedRequest, res: Respo
 
   return res.status(200).json({ budget: data });
 };
+
+export const setMonthlyBudget = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
+  const userId = req.user?.id;
+  const { category_id, monthly_budget, month_year } = req.body;
+
+  if (!category_id || monthly_budget === undefined || !month_year) {
+    return res.status(400).json({ error: 'category_id, monthly_budget and month_year are required' });
+  }
+
+  // month_year format: "YYYY-MM"
+  const { data, error } = await supabase
+    .from('category_budgets')
+    .upsert({ 
+      user_id: userId, 
+      category_id, 
+      month_year, 
+      amount: Number(monthly_budget) 
+    }, { onConflict: 'user_id,category_id,month_year' })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Set Monthly Budget DB Error:', error);
+    return res.status(400).json({ error: error.message });
+  }
+
+  return res.status(200).json({ budget: data });
+};
