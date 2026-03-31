@@ -40,6 +40,17 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/subscription', subscriptionRoutes);
 
+// Catch-all for 404 debugging
+app.use((req, res) => {
+  console.log(`[404 DEBUG] Unmatched Request: ${req.method} ${req.url}`);
+  res.status(404).json({ 
+    error: 'Route not found', 
+    method: req.method, 
+    url: req.url,
+    hint: 'Check if backend is fully deployed'
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'Daily-KHATA API is running' });
