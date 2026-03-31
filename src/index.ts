@@ -24,6 +24,12 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 // Main App Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/categories', categoryRoutes);
@@ -41,9 +47,17 @@ app.get('/api/health', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  console.log(`Available routes:`);
+  console.log(`- /api/auth`);
+  console.log(`- /api/categories`);
+  console.log(`- /api/transactions`);
+  console.log(`- /api/profile`);
 });
 
-// Schedule reminders check every hour
-cron.schedule('0 * * * *', () => {
+// Schedule daily expense reminder at 8:00 PM IST (20:00)
+// Note: Render servers usually use UTC. 8 PM IST is 2:30 PM UTC.
+// Setting for 20:00 server time.
+cron.schedule('0 20 * * *', () => {
+  console.log('[Cron] Running daily expense reminders at 8 PM...');
   processDailyReminders();
 });

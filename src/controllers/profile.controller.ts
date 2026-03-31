@@ -47,15 +47,16 @@ export const updateProfile = async (req: AuthenticatedRequest, res: Response): P
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { full_name, phone } = req.body;
-
-  if (!full_name && !phone) {
-    return res.status(400).json({ error: 'At least one field (full_name or phone) must be provided' });
-  }
+  const { full_name, phone, fcm_token } = req.body;
 
   const updateData: any = {};
   if (full_name !== undefined) updateData.full_name = full_name;
   if (phone !== undefined) updateData.phone = phone;
+  if (fcm_token !== undefined) updateData.fcm_token = fcm_token;
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ error: 'At least one field (full_name, phone, or fcm_token) must be provided' });
+  }
 
   const { data, error } = await supabase
     .from('profiles')
@@ -65,6 +66,7 @@ export const updateProfile = async (req: AuthenticatedRequest, res: Response): P
     .single();
 
   if (error) {
+    console.error('Update Profile DB Error:', error);
     return res.status(400).json({ error: error.message });
   }
 
