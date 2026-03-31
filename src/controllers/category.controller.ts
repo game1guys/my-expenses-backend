@@ -16,22 +16,48 @@ export const getCategories = async (req: AuthenticatedRequest, res: Response): P
     return res.status(400).json({ error: catError.message });
   }
 
-  // If month_year is provided, fetch budgets for that month
+  // If month_year is provided, fetch budgets and spent amounts for that month
   const { month_year } = req.query;
   let budgets: any[] = [];
-  if (month_year) {
+  let spentMap: Record<string, number> = {};
+
+  if (month_year && typeof month_year === 'string') {
+    // Fetch budgets
     const { data: budgetData } = await supabase
       .from('category_budgets')
       .select('category_id, amount')
       .eq('user_id', userId)
       .eq('month_year', month_year);
     budgets = budgetData || [];
+
+    // Fetch spent amount per category for this month
+    // month_year is "YYYY-MM"
+    const startOfMonth = `${month_year}-01`;
+    const [year, month] = month_year.split('-').map(Number);
+    const endOfMonth = new Date(year, month, 0).toISOString().split('T')[0];
+
+    const { data: spentData } = await supabase
+      .from('transactions')
+      .select('category_id, amount')
+      .eq('user_id', userId)
+      .eq('type', 'expense')
+      .gte('transaction_date', startOfMonth)
+      .lte('transaction_date', endOfMonth);
+
+    spentMap = (spentData || []).reduce((acc: any, t: any) => {
+      acc[t.category_id] = (acc[t.category_id] || 0) + Number(t.amount);
+      return acc;
+    }, {});
   }
 
-  // Merge budgets into categories
+  // Merge budgets and spent amounts into categories
   const categories = cats.map(c => {
     const b = budgets.find(b => b.category_id === c.id);
-    return { ...c, monthly_budget: b ? b.amount : null };
+    return { 
+      ...c, 
+      monthly_budget: b ? b.amount : null,
+      spent_amount: spentMap[c.id] || 0
+    };
   });
 
   return res.status(200).json({ categories });
