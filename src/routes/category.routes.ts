@@ -7,6 +7,6 @@ const router = Router();
 
 router.get('/', requireAuth, getCategories);
 router.post('/custom', requireAuth, upload.single('image'), createCustomCategory);
-router.put('/:id/set-budget', requireAuth, updateCategoryBudget);
+router.put('/:id/budget', requireAuth, updateCategoryBudget);
 
 export default router;
