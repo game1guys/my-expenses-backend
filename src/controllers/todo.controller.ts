@@ -9,23 +9,28 @@ export const listTodos = async (req: AuthenticatedRequest, res: Response): Promi
   const allowedStatuses = ['pending', 'ongoing', 'done'];
 
   // todo_date / status columns may not exist on older installs; fallback to smaller select.
-  let { data, error } = await supabase
+  // IMPORTANT: Use `any[]` to avoid TS type mismatch between the two select shapes.
+  let rawTodos: any[] = [];
+
+  const primary = await supabase
     .from('user_todos')
     .select('id, title, created_at, todo_date, status')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
-  if (error) {
+  if (!primary.error) {
+    rawTodos = (primary.data as any[]) || [];
+  } else {
     const fallback = await supabase
       .from('user_todos')
       .select('id, title, created_at, todo_date')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
     if (fallback.error) return res.status(400).json({ error: fallback.error.message });
-    data = fallback.data;
+    rawTodos = (fallback.data as any[]) || [];
   }
 
-  const todos = (data || []).map((t: any) => ({
+  const todos = (rawTodos || []).map((t: any) => ({
     ...t,
     todo_date: t.todo_date ?? null,
     status: allowedStatuses.includes(t.status) ? t.status : 'pending',
