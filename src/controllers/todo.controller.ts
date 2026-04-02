@@ -6,27 +6,32 @@ export const listTodos = async (req: AuthenticatedRequest, res: Response): Promi
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  // todo_date column may not exist on older installs; fallback to old select.
-  const { data, error } = await supabase
+  const allowedStatuses = ['pending', 'ongoing', 'done'];
+
+  // todo_date / status columns may not exist on older installs; fallback to smaller select.
+  let { data, error } = await supabase
     .from('user_todos')
-    .select('id, title, created_at, todo_date')
+    .select('id, title, created_at, todo_date, status')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
-  if (!error) {
-    return res.status(200).json({ todos: (data || []) as any[] });
-  }
-
-  {
-    const { data: data2, error: error2 } = await supabase
+  if (error) {
+    const fallback = await supabase
       .from('user_todos')
-      .select('id, title, created_at')
+      .select('id, title, created_at, todo_date')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
-    if (error2) return res.status(400).json({ error: error2.message });
-    const todos = (data2 || []).map((t: any) => ({ ...t, todo_date: t.todo_date ?? null }));
-    return res.status(200).json({ todos });
+    if (fallback.error) return res.status(400).json({ error: fallback.error.message });
+    data = fallback.data;
   }
+
+  const todos = (data || []).map((t: any) => ({
+    ...t,
+    todo_date: t.todo_date ?? null,
+    status: allowedStatuses.includes(t.status) ? t.status : 'pending',
+  }));
+
+  return res.status(200).json({ todos });
 };
 
 export const createTodo = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
@@ -39,25 +44,31 @@ export const createTodo = async (req: AuthenticatedRequest, res: Response): Prom
   const todoDateRaw = typeof req.body?.todo_date === 'string' ? req.body.todo_date : undefined;
   const todoDate = todoDateRaw && /^\d{4}-\d{2}-\d{2}$/.test(todoDateRaw) ? todoDateRaw : undefined;
 
+  const allowedStatuses = ['pending', 'ongoing', 'done'];
+  const statusRaw = typeof req.body?.status === 'string' ? req.body.status : undefined;
+  const status = statusRaw && allowedStatuses.includes(statusRaw) ? statusRaw : 'pending';
+
   // Fallback: if `todo_date` column doesn't exist yet, still create todo.
-  let insertPayload = [{ user_id: userId, title, ...(todoDate ? { todo_date: todoDate } : {}) }];
+  const insertPayload: any = { user_id: userId, title, status };
+  if (todoDate) insertPayload.todo_date = todoDate;
+
   let { data, error } = await supabase
     .from('user_todos')
-    .insert(insertPayload)
+    .insert([insertPayload])
     .select()
     .single();
 
-  if (error && todoDate) {
-    const { data: data2, error: error2 } = await supabase
+  if (error) {
+    // fallback insert (older installs without todo_date/status)
+    const fallback = await supabase
       .from('user_todos')
       .insert([{ user_id: userId, title }])
       .select()
       .single();
-    if (!error2) data = data2;
-    else return res.status(400).json({ error: error2.message });
+    if (fallback.error) return res.status(400).json({ error: fallback.error.message });
+    data = fallback.data;
   }
 
-  if (error) return res.status(400).json({ error: error.message });
   return res.status(201).json({ todo: data });
 };
 
@@ -73,4 +84,28 @@ export const deleteTodo = async (req: AuthenticatedRequest, res: Response): Prom
 
   if (error) return res.status(400).json({ error: error.message });
   return res.status(200).json({ ok: true });
+};
+
+export const updateTodoStatus = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ error: 'id required' });
+
+  const allowedStatuses = ['pending', 'ongoing', 'done'];
+  const statusRaw = typeof req.body?.status === 'string' ? req.body.status : '';
+  const status = allowedStatuses.includes(statusRaw) ? statusRaw : null;
+  if (!status) return res.status(400).json({ error: 'status must be pending/ongoing/done' });
+
+  const { data, error } = await supabase
+    .from('user_todos')
+    .update({ status })
+    .eq('id', id)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+  return res.status(200).json({ todo: data });
 };
