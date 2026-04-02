@@ -24,7 +24,9 @@ app.use((0, cors_1.default)({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express_1.default.json());
+// Admin notification can send base64 image_url — default 100kb limit caused PayloadTooLargeError
+app.use(express_1.default.json({ limit: '15mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '15mb' }));
 // Request logging middleware
 app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);

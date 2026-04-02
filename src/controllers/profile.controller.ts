@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { supabase } from '../database/supabase';
+import { createSupabaseForUser } from '../database/supabaseUserClient';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 
 /**
@@ -11,9 +12,15 @@ export const getMe = async (req: AuthenticatedRequest, res: Response): Promise<a
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  const accessToken = req.headers.authorization?.split(' ')[1];
+  if (!accessToken) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   const meta = user.user_metadata || {};
 
-  const { data: profile, error } = await supabase
+  const sb = createSupabaseForUser(accessToken);
+  const { data: profile, error } = await sb
     .from('profiles')
     .select('full_name, phone, subscription_tier, subscription_end_date, created_at')
     .eq('id', user.id)
@@ -58,7 +65,13 @@ export const updateProfile = async (req: AuthenticatedRequest, res: Response): P
     return res.status(400).json({ error: 'At least one field (full_name, phone, or fcm_token) must be provided' });
   }
 
-  const { data, error } = await supabase
+  const accessToken = req.headers.authorization?.split(' ')[1];
+  if (!accessToken) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const sb = createSupabaseForUser(accessToken);
+  const { data, error } = await sb
     .from('profiles')
     .update(updateData)
     .eq('id', user.id)
@@ -70,10 +83,19 @@ export const updateProfile = async (req: AuthenticatedRequest, res: Response): P
     return res.status(400).json({ error: error.message });
   }
 
-  // Also update auth metadata for consistency
-  await supabase.auth.admin.updateUserById(user.id, {
-    user_metadata: { ...user.user_metadata, ...updateData },
-  });
+  // Sync name/phone to auth metadata (needs service role — optional)
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const meta: Record<string, unknown> = { ...user.user_metadata };
+      if (full_name !== undefined) meta.full_name = full_name;
+      if (phone !== undefined) meta.phone = phone;
+      await supabase.auth.admin.updateUserById(user.id, {
+        user_metadata: meta,
+      });
+    } catch (authErr) {
+      console.warn('Auth metadata sync skipped:', authErr);
+    }
+  }
 
   return res.status(200).json({
     message: 'Profile updated successfully',

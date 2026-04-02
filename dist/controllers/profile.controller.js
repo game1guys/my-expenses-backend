@@ -11,17 +11,23 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateProfile = exports.getMe = void 0;
 const supabase_1 = require("../database/supabase");
+const supabaseUserClient_1 = require("../database/supabaseUserClient");
 /**
  * Current user profile + subscription (Mobile “Me” screen).
  */
 const getMe = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
     const user = req.user;
     if (!(user === null || user === void 0 ? void 0 : user.id)) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
+    const accessToken = (_a = req.headers.authorization) === null || _a === void 0 ? void 0 : _a.split(' ')[1];
+    if (!accessToken) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
     const meta = user.user_metadata || {};
-    const { data: profile, error } = yield supabase_1.supabase
+    const sb = (0, supabaseUserClient_1.createSupabaseForUser)(accessToken);
+    const { data: profile, error } = yield sb
         .from('profiles')
         .select('full_name, phone, subscription_tier, subscription_end_date, created_at')
         .eq('id', user.id)
@@ -32,15 +38,15 @@ const getMe = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     return res.status(200).json({
         user: {
             id: user.id,
-            email: (_a = user.email) !== null && _a !== void 0 ? _a : null,
-            full_name: (_c = (_b = profile === null || profile === void 0 ? void 0 : profile.full_name) !== null && _b !== void 0 ? _b : meta.full_name) !== null && _c !== void 0 ? _c : 'User',
-            phone: (_e = (_d = profile === null || profile === void 0 ? void 0 : profile.phone) !== null && _d !== void 0 ? _d : meta.phone) !== null && _e !== void 0 ? _e : null,
+            email: (_b = user.email) !== null && _b !== void 0 ? _b : null,
+            full_name: (_d = (_c = profile === null || profile === void 0 ? void 0 : profile.full_name) !== null && _c !== void 0 ? _c : meta.full_name) !== null && _d !== void 0 ? _d : 'User',
+            phone: (_f = (_e = profile === null || profile === void 0 ? void 0 : profile.phone) !== null && _e !== void 0 ? _e : meta.phone) !== null && _f !== void 0 ? _f : null,
         },
         subscription: {
-            tier: (_f = profile === null || profile === void 0 ? void 0 : profile.subscription_tier) !== null && _f !== void 0 ? _f : 'free',
-            end_date: (_g = profile === null || profile === void 0 ? void 0 : profile.subscription_end_date) !== null && _g !== void 0 ? _g : null,
+            tier: (_g = profile === null || profile === void 0 ? void 0 : profile.subscription_tier) !== null && _g !== void 0 ? _g : 'free',
+            end_date: (_h = profile === null || profile === void 0 ? void 0 : profile.subscription_end_date) !== null && _h !== void 0 ? _h : null,
         },
-        member_since: (_j = (_h = profile === null || profile === void 0 ? void 0 : profile.created_at) !== null && _h !== void 0 ? _h : user.created_at) !== null && _j !== void 0 ? _j : null,
+        member_since: (_k = (_j = profile === null || profile === void 0 ? void 0 : profile.created_at) !== null && _j !== void 0 ? _j : user.created_at) !== null && _k !== void 0 ? _k : null,
     });
 });
 exports.getMe = getMe;
@@ -48,6 +54,7 @@ exports.getMe = getMe;
  * Update user profile (Name and Phone only).
  */
 const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const user = req.user;
     if (!(user === null || user === void 0 ? void 0 : user.id)) {
         return res.status(401).json({ error: 'Unauthorized' });
@@ -63,7 +70,12 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     if (Object.keys(updateData).length === 0) {
         return res.status(400).json({ error: 'At least one field (full_name, phone, or fcm_token) must be provided' });
     }
-    const { data, error } = yield supabase_1.supabase
+    const accessToken = (_a = req.headers.authorization) === null || _a === void 0 ? void 0 : _a.split(' ')[1];
+    if (!accessToken) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const sb = (0, supabaseUserClient_1.createSupabaseForUser)(accessToken);
+    const { data, error } = yield sb
         .from('profiles')
         .update(updateData)
         .eq('id', user.id)
@@ -73,10 +85,22 @@ const updateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         console.error('Update Profile DB Error:', error);
         return res.status(400).json({ error: error.message });
     }
-    // Also update auth metadata for consistency
-    yield supabase_1.supabase.auth.admin.updateUserById(user.id, {
-        user_metadata: Object.assign(Object.assign({}, user.user_metadata), updateData),
-    });
+    // Sync name/phone to auth metadata (needs service role — optional)
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        try {
+            const meta = Object.assign({}, user.user_metadata);
+            if (full_name !== undefined)
+                meta.full_name = full_name;
+            if (phone !== undefined)
+                meta.phone = phone;
+            yield supabase_1.supabase.auth.admin.updateUserById(user.id, {
+                user_metadata: meta,
+            });
+        }
+        catch (authErr) {
+            console.warn('Auth metadata sync skipped:', authErr);
+        }
+    }
     return res.status(200).json({
         message: 'Profile updated successfully',
         user: {
