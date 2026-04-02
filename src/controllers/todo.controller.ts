@@ -103,6 +103,12 @@ export const updateTodoStatus = async (req: AuthenticatedRequest, res: Response)
   const status = allowedStatuses.includes(statusRaw) ? statusRaw : null;
   if (!status) return res.status(400).json({ error: 'status must be pending/ongoing/done' });
 
+  if (status === 'done') {
+    const { error } = await supabase.from('user_todos').delete().eq('id', id).eq('user_id', userId);
+    if (error) return res.status(400).json({ error: error.message });
+    return res.status(200).json({ ok: true, deleted: true });
+  }
+
   const { data, error } = await supabase
     .from('user_todos')
     .update({ status })
