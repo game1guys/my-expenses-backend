@@ -216,6 +216,61 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
 };
 
 /**
+ * CA-friendly export: every transaction line in date order for a range.
+ * GET /api/analytics/ledger-lines?start=YYYY-MM-DD&end=YYYY-MM-DD&category_id=optional
+ */
+export const getLedgerLines = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
+  const userId = req.user!.id;
+  const start = req.query.start as string;
+  const end = req.query.end as string;
+  const categoryId =
+    typeof req.query.category_id === 'string' && req.query.category_id.length > 0
+      ? req.query.category_id
+      : undefined;
+
+  if (!start || !end || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    return res.status(400).json({ error: 'Query params start and end are required (YYYY-MM-DD)' });
+  }
+
+  let q = supabase
+    .from('transactions')
+    .select('id, transaction_date, type, amount, note, category_id, categories(name), parties(name)')
+    .eq('user_id', userId)
+    .gte('transaction_date', start)
+    .lte('transaction_date', end)
+    .order('transaction_date', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (categoryId) q = q.eq('category_id', categoryId);
+
+  const { data, error } = await q;
+  if (error) return res.status(400).json({ error: error.message });
+
+  const rows = (data || []).map((trx: any, idx: number) => {
+    const c = trx.categories;
+    const p = trx.parties;
+    const catName = (Array.isArray(c) ? c[0]?.name : c?.name) || '—';
+    const partyName = (Array.isArray(p) ? p[0]?.name : p?.name) || '';
+    return {
+      row: idx + 1,
+      date: String(trx.transaction_date).split('T')[0],
+      type: trx.type,
+      category: catName,
+      amount: Number(trx.amount),
+      note: trx.note || '',
+      party: partyName,
+    };
+  });
+
+  return res.status(200).json({
+    range: { start, end },
+    expenses: rows.filter((r) => r.type === 'expense'),
+    income: rows.filter((r) => r.type === 'income'),
+    rows,
+  });
+};
+
+/**
  * API 1: Monthly Bar Graph Data
  * Groups transactions by DAY (1st to 30th/31st) for the CURRENT month.
  */

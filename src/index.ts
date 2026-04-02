@@ -9,6 +9,7 @@ import adminRoutes from './routes/admin.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import profileRoutes from './routes/profile.routes';
 import subscriptionRoutes from './routes/subscription.routes';
+import todoRoutes from './routes/todo.routes';
 import cron from 'node-cron';
 import { processDailyReminders } from './services/reminder.job';
 
@@ -41,6 +42,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/subscription', subscriptionRoutes);
+app.use('/api/todos', todoRoutes);
 
 // Catch-all for 404 debugging
 app.use((req, res) => {

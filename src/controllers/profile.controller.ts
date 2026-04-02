@@ -70,7 +70,13 @@ export const updateProfile = async (req: AuthenticatedRequest, res: Response): P
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const sb = createSupabaseForUser(accessToken);
+  // Prefer service role: JWT is already verified in middleware; avoids RLS/PostgREST
+  // edge cases where user-scoped anon + Bearer header does not apply auth.uid() as expected.
+  const sb =
+    process.env.SUPABASE_SERVICE_ROLE_KEY != null && process.env.SUPABASE_SERVICE_ROLE_KEY !== ''
+      ? supabase
+      : createSupabaseForUser(accessToken);
+
   const { data, error } = await sb
     .from('profiles')
     .update(updateData)

@@ -5,6 +5,7 @@ import {
   compareDates,
   getCategoryDistribution,
   getSpendingOverview,
+  getLedgerLines,
 } from '../controllers/analytics.controller';
 import { requireAuth } from '../middlewares/auth.middleware';
 
@@ -18,5 +19,6 @@ router.get('/weekly-trend', getWeeklyTrends);
 router.get('/compare-days', compareDates);
 router.get('/category-chart', getCategoryDistribution);
 router.get('/overview', getSpendingOverview);
+router.get('/ledger-lines', getLedgerLines);
 
 export default router;
