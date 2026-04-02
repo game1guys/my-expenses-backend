@@ -7,23 +7,26 @@ export const listTodos = async (req: AuthenticatedRequest, res: Response): Promi
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   // todo_date column may not exist on older installs; fallback to old select.
-  let { data, error } = await supabase
+  const { data, error } = await supabase
     .from('user_todos')
     .select('id, title, created_at, todo_date')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
-  if (error) {
+  if (!error) {
+    return res.status(200).json({ todos: (data || []) as any[] });
+  }
+
+  {
     const { data: data2, error: error2 } = await supabase
       .from('user_todos')
       .select('id, title, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
     if (error2) return res.status(400).json({ error: error2.message });
-    data = data2;
+    const todos = (data2 || []).map((t: any) => ({ ...t, todo_date: t.todo_date ?? null }));
+    return res.status(200).json({ todos });
   }
-
-  return res.status(200).json({ todos: data || [] });
 };
 
 export const createTodo = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
