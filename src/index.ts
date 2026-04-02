@@ -69,10 +69,8 @@ app.listen(PORT, () => {
   console.log(`- /api/profile`);
 });
 
-// Schedule daily expense reminder at 8:00 PM IST (20:00)
-// Note: Render servers usually use UTC. 8 PM IST is 2:30 PM UTC.
-// Setting for 20:00 server time.
-cron.schedule('0 20 * * *', () => {
-  console.log('[Cron] Running daily expense reminders at 8 PM...');
+// Schedule daily expense reminder at 8:00 PM IST = 14:30 UTC
+cron.schedule('30 14 * * *', () => {
+  console.log('[Cron] Running daily expense reminders at 8 PM IST (14:30 UTC)...');
   processDailyReminders();
 });

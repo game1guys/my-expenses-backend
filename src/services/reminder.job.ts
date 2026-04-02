@@ -1,5 +1,6 @@
 import { supabase } from '../database/supabase';
 import { sendReminderEmail } from './email.service';
+import { sendMulticastNotification } from './fcmPush.service';
 
 export const processDailyReminders = async () => {
   console.log('Processing daily reminders (Expenses & Parties)...');
@@ -14,11 +15,21 @@ export const processDailyReminders = async () => {
       .select('id, full_name, fcm_token')
       .not('fcm_token', 'is', null);
 
-    if (!profError && profiles) {
-       for (const profile of profiles) {
-         console.log(`[Push] Sending daily expense reminder to ${profile.full_name} (${profile.id})`);
-       }
-     }
+    if (!profError && profiles && profiles.length > 0) {
+      const tokens = profiles.map((p: any) => p.fcm_token).filter(Boolean) as string[];
+      if (tokens.length > 0) {
+        try {
+          const result = await sendMulticastNotification({
+            tokens,
+            title: 'Daily Khata',
+            body: 'Ab apne expenses add karein.',
+          });
+          console.log(`[Push] Daily expense reminder sent — success: ${result.successCount}, failed: ${result.failureCount}`);
+        } catch (e) {
+          console.error('[Push] Daily expense reminder FCM failed:', e);
+        }
+      }
+    }
 
     // 2. Party Udhar Reminders (Existing Logic)
     const { data: parties, error } = await supabase
