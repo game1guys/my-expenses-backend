@@ -37,7 +37,7 @@ export const addTransaction = async (req: AuthenticatedRequest, res: Response): 
       return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
     }
 
-    // Check Free Plan Limits (1000 tx/month, 3 parties)
+    // Check Free Plan Limits (100 tx/month, 3 parties)
     const { data: profile } = await supabase
       .from('profiles')
       .select('subscription_tier')
@@ -55,8 +55,8 @@ export const addTransaction = async (req: AuthenticatedRequest, res: Response): 
         .eq('user_id', userId)
         .gte('transaction_date', startOfMonth.toISOString());
 
-      if (txCount && txCount >= 1000) {
-        return res.status(403).json({ error: 'Monthly transaction limit (1000) reached for Free Plan. Please upgrade to Premium.' });
+      if (txCount && txCount >= 100) {
+        return res.status(403).json({ error: 'Monthly transaction limit (100) reached for Free Plan. Please upgrade to Premium.' });
       }
 
       if (!party_id && party_name) {

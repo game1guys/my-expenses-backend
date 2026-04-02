@@ -42,6 +42,34 @@ const addTransaction = (req, res) => __awaiter(void 0, void 0, void 0, function*
         if (category.type !== type) {
             return res.status(400).json({ error: `Category type (${category.type}) does not match transaction type (${type}).` });
         }
+        // Check Free Plan Limits (100 tx/month, 3 parties)
+        const { data: profile } = yield supabase_1.supabase
+            .from('profiles')
+            .select('subscription_tier')
+            .eq('id', userId)
+            .single();
+        if ((profile === null || profile === void 0 ? void 0 : profile.subscription_tier) === 'free') {
+            const startOfMonth = new Date();
+            startOfMonth.setDate(1);
+            startOfMonth.setHours(0, 0, 0, 0);
+            const { count: txCount } = yield supabase_1.supabase
+                .from('transactions')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', userId)
+                .gte('transaction_date', startOfMonth.toISOString());
+            if (txCount && txCount >= 100) {
+                return res.status(403).json({ error: 'Monthly transaction limit (100) reached for Free Plan. Please upgrade to Premium.' });
+            }
+            if (!party_id && party_name) {
+                const { count: partyCount } = yield supabase_1.supabase
+                    .from('parties')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('user_id', userId);
+                if (partyCount && partyCount >= 3) {
+                    return res.status(403).json({ error: 'Party limit (3) reached for Free Plan. Please upgrade to Premium.' });
+                }
+            }
+        }
         // Intelligent Udhar Node Resolution
         let resolvedPartyId = party_id;
         if (!resolvedPartyId && party_name) {

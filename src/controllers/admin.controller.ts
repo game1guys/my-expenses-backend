@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import { isFcmReady, sendMulticastNotification, tierMatchesSubscription } from '../services/fcmPush.service';
 
 dotenv.config();
 
@@ -198,6 +199,80 @@ export const getPaginatedNotifications = async (req: Request, res: Response): Pr
 };
 
 /**
+ * Insert admin notification row and send FCM to matching users (by subscription tier).
+ */
+export const broadcastNotification = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { title, message, target_tier, image_url } = req.body;
+    if (!title || !message || !target_tier) {
+      return res.status(400).json({ error: 'title, message, and target_tier are required' });
+    }
+
+    const { data: row, error } = await supabaseAdmin
+      .from('notifications')
+      .insert({
+        title: String(title).trim(),
+        message: String(message).trim(),
+        target_tier: String(target_tier).trim(),
+        image_url: image_url ? String(image_url).trim() : null,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const { data: profiles, error: pErr } = await supabaseAdmin
+      .from('profiles')
+      .select('fcm_token, subscription_tier')
+      .not('fcm_token', 'is', null);
+
+    if (pErr) throw pErr;
+
+    const tokens = (profiles || [])
+      .filter((p: { subscription_tier?: string | null }) =>
+        tierMatchesSubscription(p.subscription_tier ?? null, String(target_tier).trim())
+      )
+      .map((p: { fcm_token: string }) => p.fcm_token);
+
+    let push = { successCount: 0, failureCount: 0 };
+    const fcmOk = isFcmReady();
+
+    if (fcmOk && tokens.length > 0) {
+      const img = row.image_url as string | null;
+      const imageUrl =
+        img && (img.startsWith('http://') || img.startsWith('https://')) ? img : undefined;
+
+      push = await sendMulticastNotification({
+        tokens,
+        title: row.title as string,
+        body: row.message as string,
+        imageUrl,
+        data: {
+          type: 'admin_broadcast',
+          notification_id: row.id as string,
+        },
+      });
+    }
+
+    return res.status(201).json({
+      notification: row,
+      target_tier,
+      eligible_devices: tokens.length,
+      fcm_configured: fcmOk,
+      push,
+      hint: !fcmOk
+        ? 'Set FIREBASE_SERVICE_ACCOUNT_JSON on the server (Firebase → Project settings → Service accounts → Generate key; paste JSON in env).'
+        : tokens.length === 0
+          ? 'No FCM tokens for this segment — users must open the app after login so devices register a token.'
+          : undefined,
+    });
+  } catch (e: any) {
+    console.error('broadcastNotification:', e);
+    return res.status(500).json({ error: e.message || 'Broadcast failed' });
+  }
+};
+
+/**
  * Super-Admin Ledger Inspection
  * Retrieve any specific node's transactions ignoring RLS
  */
@@ -261,4 +336,58 @@ export const getSystemPulseLeaders = async (req: Request, res: Response): Promis
    } catch (error) {
      return res.status(500).json({ error: 'System Pulse Aggregation failure.' });
    }
+};
+
+export const listPromoCodes = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('promo_codes')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return res.status(200).json({ promos: data || [] });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || 'Failed to list promo codes' });
+  }
+};
+
+export const createPromoCode = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { code, percent_off, max_uses, expires_at } = req.body;
+    if (!code || percent_off == null) {
+      return res.status(400).json({ error: 'code and percent_off are required' });
+    }
+    const pct = Number(percent_off);
+    if (Number.isNaN(pct) || pct < 1 || pct > 100) {
+      return res.status(400).json({ error: 'percent_off must be between 1 and 100' });
+    }
+    const row = {
+      code: String(code).trim().toUpperCase(),
+      percent_off: pct,
+      max_uses: max_uses === null || max_uses === '' || max_uses === undefined ? null : Number(max_uses),
+      expires_at: expires_at ? new Date(expires_at).toISOString() : null,
+      is_active: true,
+    };
+    const { data, error } = await supabaseAdmin.from('promo_codes').insert(row).select().single();
+    if (error) throw error;
+    return res.status(201).json({ promo: data });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || 'Failed to create promo code' });
+  }
+};
+
+export const updatePromoCode = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { is_active, max_uses, expires_at } = req.body;
+    const patch: Record<string, unknown> = {};
+    if (typeof is_active === 'boolean') patch.is_active = is_active;
+    if (max_uses !== undefined) patch.max_uses = max_uses === null ? null : Number(max_uses);
+    if (expires_at !== undefined) patch.expires_at = expires_at ? new Date(expires_at).toISOString() : null;
+    const { data, error } = await supabaseAdmin.from('promo_codes').update(patch).eq('id', id).select().single();
+    if (error) throw error;
+    return res.status(200).json({ promo: data });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || 'Failed to update promo code' });
+  }
 };

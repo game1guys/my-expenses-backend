@@ -12,10 +12,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSystemPulseLeaders = exports.getAdminUserLedger = exports.getPaginatedNotifications = exports.getPaginatedUsers = exports.getAdminCoreData = exports.createUser = void 0;
+exports.updatePromoCode = exports.createPromoCode = exports.listPromoCodes = exports.getSystemPulseLeaders = exports.getAdminUserLedger = exports.broadcastNotification = exports.getPaginatedNotifications = exports.getPaginatedUsers = exports.getAdminCoreData = exports.createUser = void 0;
 const supabase_js_1 = require("@supabase/supabase-js");
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const fcmPush_service_1 = require("../services/fcmPush.service");
 dotenv_1.default.config();
 // We absolutely MUST use the strictly protected Service Role Key, otherwise the 
 // Supabase server will illegally log out the requesting Admin session mid-flight.
@@ -197,6 +198,71 @@ const getPaginatedNotifications = (req, res) => __awaiter(void 0, void 0, void 0
 });
 exports.getPaginatedNotifications = getPaginatedNotifications;
 /**
+ * Insert admin notification row and send FCM to matching users (by subscription tier).
+ */
+const broadcastNotification = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { title, message, target_tier, image_url } = req.body;
+        if (!title || !message || !target_tier) {
+            return res.status(400).json({ error: 'title, message, and target_tier are required' });
+        }
+        const { data: row, error } = yield supabaseAdmin
+            .from('notifications')
+            .insert({
+            title: String(title).trim(),
+            message: String(message).trim(),
+            target_tier: String(target_tier).trim(),
+            image_url: image_url ? String(image_url).trim() : null,
+        })
+            .select()
+            .single();
+        if (error)
+            throw error;
+        const { data: profiles, error: pErr } = yield supabaseAdmin
+            .from('profiles')
+            .select('fcm_token, subscription_tier')
+            .not('fcm_token', 'is', null);
+        if (pErr)
+            throw pErr;
+        const tokens = (profiles || [])
+            .filter((p) => { var _a; return (0, fcmPush_service_1.tierMatchesSubscription)((_a = p.subscription_tier) !== null && _a !== void 0 ? _a : null, String(target_tier).trim()); })
+            .map((p) => p.fcm_token);
+        let push = { successCount: 0, failureCount: 0 };
+        const fcmOk = (0, fcmPush_service_1.isFcmReady)();
+        if (fcmOk && tokens.length > 0) {
+            const img = row.image_url;
+            const imageUrl = img && (img.startsWith('http://') || img.startsWith('https://')) ? img : undefined;
+            push = yield (0, fcmPush_service_1.sendMulticastNotification)({
+                tokens,
+                title: row.title,
+                body: row.message,
+                imageUrl,
+                data: {
+                    type: 'admin_broadcast',
+                    notification_id: row.id,
+                },
+            });
+        }
+        return res.status(201).json({
+            notification: row,
+            target_tier,
+            eligible_devices: tokens.length,
+            fcm_configured: fcmOk,
+            push,
+            hint: !fcmOk
+                ? 'Set FIREBASE_SERVICE_ACCOUNT_JSON on the server (Firebase → Project settings → Service accounts → Generate key; paste JSON in env).'
+                : tokens.length === 0
+                    ? 'No FCM tokens for this segment — users must open the app after login so devices register a token.'
+                    : undefined,
+        });
+    }
+    catch (e) {
+        console.error('broadcastNotification:', e);
+        return res.status(500).json({ error: e.message || 'Broadcast failed' });
+    }
+});
+exports.broadcastNotification = broadcastNotification;
+/**
  * Super-Admin Ledger Inspection
  * Retrieve any specific node's transactions ignoring RLS
  */
@@ -259,3 +325,66 @@ const getSystemPulseLeaders = (req, res) => __awaiter(void 0, void 0, void 0, fu
     }
 });
 exports.getSystemPulseLeaders = getSystemPulseLeaders;
+const listPromoCodes = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { data, error } = yield supabaseAdmin
+            .from('promo_codes')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error)
+            throw error;
+        return res.status(200).json({ promos: data || [] });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message || 'Failed to list promo codes' });
+    }
+});
+exports.listPromoCodes = listPromoCodes;
+const createPromoCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { code, percent_off, max_uses, expires_at } = req.body;
+        if (!code || percent_off == null) {
+            return res.status(400).json({ error: 'code and percent_off are required' });
+        }
+        const pct = Number(percent_off);
+        if (Number.isNaN(pct) || pct < 1 || pct > 100) {
+            return res.status(400).json({ error: 'percent_off must be between 1 and 100' });
+        }
+        const row = {
+            code: String(code).trim().toUpperCase(),
+            percent_off: pct,
+            max_uses: max_uses === null || max_uses === '' || max_uses === undefined ? null : Number(max_uses),
+            expires_at: expires_at ? new Date(expires_at).toISOString() : null,
+            is_active: true,
+        };
+        const { data, error } = yield supabaseAdmin.from('promo_codes').insert(row).select().single();
+        if (error)
+            throw error;
+        return res.status(201).json({ promo: data });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message || 'Failed to create promo code' });
+    }
+});
+exports.createPromoCode = createPromoCode;
+const updatePromoCode = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { id } = req.params;
+        const { is_active, max_uses, expires_at } = req.body;
+        const patch = {};
+        if (typeof is_active === 'boolean')
+            patch.is_active = is_active;
+        if (max_uses !== undefined)
+            patch.max_uses = max_uses === null ? null : Number(max_uses);
+        if (expires_at !== undefined)
+            patch.expires_at = expires_at ? new Date(expires_at).toISOString() : null;
+        const { data, error } = yield supabaseAdmin.from('promo_codes').update(patch).eq('id', id).select().single();
+        if (error)
+            throw error;
+        return res.status(200).json({ promo: data });
+    }
+    catch (e) {
+        return res.status(500).json({ error: e.message || 'Failed to update promo code' });
+    }
+});
+exports.updatePromoCode = updatePromoCode;

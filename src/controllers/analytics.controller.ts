@@ -104,18 +104,42 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
   const prevStartStr = toYMD(prevRangeStart);
   const prevEndStr = toYMD(prevRangeEnd);
 
+  const filterCategoryId =
+    typeof req.query.category_id === 'string' && req.query.category_id.length > 0
+      ? req.query.category_id
+      : undefined;
+
   const { data: raw, error } = await fetchUserTransactions(req.user!.id);
   if (error) return res.status(500).json({ error: error.message });
 
   const data = (raw || []).filter((trx: any) => {
     const d = String(trx.transaction_date).split('T')[0];
-    return d >= startStr && d <= endStr;
+    if (d < startStr || d > endStr) return false;
+    if (filterCategoryId && trx.category_id !== filterCategoryId) return false;
+    return true;
   });
 
   const prevData = (raw || []).filter((trx: any) => {
     const d = String(trx.transaction_date).split('T')[0];
-    return d >= prevStartStr && d <= prevEndStr;
+    if (d < prevStartStr || d > prevEndStr) return false;
+    if (filterCategoryId && trx.category_id !== filterCategoryId) return false;
+    return true;
   });
+
+  let filterLabel: string | null = null;
+  if (filterCategoryId) {
+    const fromTrx = (raw || []).find((t: any) => t.category_id === filterCategoryId);
+    const c = fromTrx?.categories as { name?: string } | { name?: string }[] | undefined;
+    filterLabel = (Array.isArray(c) ? c[0]?.name : c?.name) || null;
+    if (!filterLabel) {
+      const { data: catRow } = await supabase
+        .from('categories')
+        .select('name')
+        .eq('id', filterCategoryId)
+        .maybeSingle();
+      filterLabel = catRow?.name || 'Category';
+    }
+  }
 
   const bucketKeys: string[] = [];
   const cursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate());
@@ -185,6 +209,9 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
     dailyBuckets,
     expenseByCategory: toArr(expenseByCategory),
     incomeByCategory: toArr(incomeByCategory),
+    filter: filterCategoryId
+      ? { category_id: filterCategoryId, name: filterLabel || 'Category' }
+      : null,
   });
 };
 

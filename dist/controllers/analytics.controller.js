@@ -17,7 +17,7 @@ const supabase_1 = require("../database/supabase");
 const fetchUserTransactions = (userId) => __awaiter(void 0, void 0, void 0, function* () {
     const { data, error } = yield supabase_1.supabase
         .from('transactions')
-        .select('amount, type, category_id, transaction_date, categories(name, color)')
+        .select('amount, type, category_id, transaction_date, categories(name, color, icon_url)')
         .eq('user_id', userId);
     return { data: data || [], error };
 });
@@ -43,6 +43,7 @@ function addDays(d, n) {
  * GET /api/analytics/overview?period=day|week|month&date=YYYY-MM-DD
  */
 const getSpendingOverview = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const period = req.query.period || 'month';
     const dateStr = req.query.date;
     let ref = new Date();
@@ -112,17 +113,42 @@ const getSpendingOverview = (req, res) => __awaiter(void 0, void 0, void 0, func
     }
     const prevStartStr = toYMD(prevRangeStart);
     const prevEndStr = toYMD(prevRangeEnd);
+    const filterCategoryId = typeof req.query.category_id === 'string' && req.query.category_id.length > 0
+        ? req.query.category_id
+        : undefined;
     const { data: raw, error } = yield fetchUserTransactions(req.user.id);
     if (error)
         return res.status(500).json({ error: error.message });
     const data = (raw || []).filter((trx) => {
         const d = String(trx.transaction_date).split('T')[0];
-        return d >= startStr && d <= endStr;
+        if (d < startStr || d > endStr)
+            return false;
+        if (filterCategoryId && trx.category_id !== filterCategoryId)
+            return false;
+        return true;
     });
     const prevData = (raw || []).filter((trx) => {
         const d = String(trx.transaction_date).split('T')[0];
-        return d >= prevStartStr && d <= prevEndStr;
+        if (d < prevStartStr || d > prevEndStr)
+            return false;
+        if (filterCategoryId && trx.category_id !== filterCategoryId)
+            return false;
+        return true;
     });
+    let filterLabel = null;
+    if (filterCategoryId) {
+        const fromTrx = (raw || []).find((t) => t.category_id === filterCategoryId);
+        const c = fromTrx === null || fromTrx === void 0 ? void 0 : fromTrx.categories;
+        filterLabel = (Array.isArray(c) ? (_a = c[0]) === null || _a === void 0 ? void 0 : _a.name : c === null || c === void 0 ? void 0 : c.name) || null;
+        if (!filterLabel) {
+            const { data: catRow } = yield supabase_1.supabase
+                .from('categories')
+                .select('name')
+                .eq('id', filterCategoryId)
+                .maybeSingle();
+            filterLabel = (catRow === null || catRow === void 0 ? void 0 : catRow.name) || 'Category';
+        }
+    }
     const bucketKeys = [];
     const cursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate());
     const endDay = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), rangeEnd.getDate());
@@ -136,7 +162,7 @@ const getSpendingOverview = (req, res) => __awaiter(void 0, void 0, void 0, func
     const expenseByCategory = {};
     const incomeByCategory = {};
     data.forEach((trx) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         const d = String(trx.transaction_date).split('T')[0];
         const amt = Number(trx.amount);
         const idx = bucketKeys.indexOf(d);
@@ -146,18 +172,20 @@ const getSpendingOverview = (req, res) => __awaiter(void 0, void 0, void 0, func
                 dailyBuckets[idx].income += amt;
             const catName = ((_a = trx.categories) === null || _a === void 0 ? void 0 : _a.name) || 'Uncategorized';
             const color = ((_b = trx.categories) === null || _b === void 0 ? void 0 : _b.color) || '#22c55e';
+            const icon_url = ((_c = trx.categories) === null || _c === void 0 ? void 0 : _c.icon_url) || '';
             if (!incomeByCategory[catName])
-                incomeByCategory[catName] = { value: 0, color };
+                incomeByCategory[catName] = { value: 0, color, icon_url };
             incomeByCategory[catName].value += amt;
         }
         else if (trx.type === 'expense') {
             totals.expense += amt;
             if (idx >= 0)
                 dailyBuckets[idx].expense += amt;
-            const catName = ((_c = trx.categories) === null || _c === void 0 ? void 0 : _c.name) || 'Uncategorized';
-            const color = ((_d = trx.categories) === null || _d === void 0 ? void 0 : _d.color) || '#cbd5e1';
+            const catName = ((_d = trx.categories) === null || _d === void 0 ? void 0 : _d.name) || 'Uncategorized';
+            const color = ((_e = trx.categories) === null || _e === void 0 ? void 0 : _e.color) || '#cbd5e1';
+            const icon_url = ((_f = trx.categories) === null || _f === void 0 ? void 0 : _f.icon_url) || '';
             if (!expenseByCategory[catName])
-                expenseByCategory[catName] = { value: 0, color };
+                expenseByCategory[catName] = { value: 0, color, icon_url };
             expenseByCategory[catName].value += amt;
         }
     });
@@ -174,7 +202,12 @@ const getSpendingOverview = (req, res) => __awaiter(void 0, void 0, void 0, func
     totals.savings = totals.income - totals.expense;
     prevTotals.savings = prevTotals.income - prevTotals.expense;
     const toArr = (rec) => Object.keys(rec)
-        .map((name) => ({ name, value: rec[name].value, color: rec[name].color }))
+        .map((name) => ({
+        name,
+        value: rec[name].value,
+        color: rec[name].color,
+        icon_url: rec[name].icon_url
+    }))
         .sort((a, b) => b.value - a.value);
     return res.status(200).json({
         period,
@@ -185,6 +218,9 @@ const getSpendingOverview = (req, res) => __awaiter(void 0, void 0, void 0, func
         dailyBuckets,
         expenseByCategory: toArr(expenseByCategory),
         incomeByCategory: toArr(incomeByCategory),
+        filter: filterCategoryId
+            ? { category_id: filterCategoryId, name: filterLabel || 'Category' }
+            : null,
     });
 });
 exports.getSpendingOverview = getSpendingOverview;

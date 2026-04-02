@@ -14,9 +14,21 @@ const supabase_1 = require("../database/supabase");
 const email_service_1 = require("./email.service");
 const processDailyReminders = () => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    console.log('Processing daily reminders...');
+    console.log('Processing daily reminders (Expenses & Parties)...');
     try {
-        // 1. Get all parties with reminder_frequency > 0
+        const now = new Date();
+        // 1. Daily Expense Reminders (8 PM)
+        // Send to all users who have an fcm_token
+        const { data: profiles, error: profError } = yield supabase_1.supabase
+            .from('profiles')
+            .select('id, full_name, fcm_token')
+            .not('fcm_token', 'is', null);
+        if (!profError && profiles) {
+            for (const profile of profiles) {
+                console.log(`[Push] Sending daily expense reminder to ${profile.full_name} (${profile.id})`);
+            }
+        }
+        // 2. Party Udhar Reminders (Existing Logic)
         const { data: parties, error } = yield supabase_1.supabase
             .from('parties')
             .select('*, udhar_transactions(*), profiles(full_name)')
@@ -25,7 +37,6 @@ const processDailyReminders = () => __awaiter(void 0, void 0, void 0, function* 
             console.error('Error fetching parties for reminders:', error);
             return;
         }
-        const now = new Date();
         for (const party of parties) {
             // Skip if no email or if start date is in the future
             if (!party.email)
