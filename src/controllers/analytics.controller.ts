@@ -216,11 +216,13 @@ export const getSpendingOverview = async (req: AuthenticatedRequest, res: Respon
 };
 
 /**
- * CA-friendly export: every transaction line in date order for a range.
+ * CA-friendly export: every transaction line in date order for a range, or all-time.
  * GET /api/analytics/ledger-lines?start=YYYY-MM-DD&end=YYYY-MM-DD&category_id=optional
+ * GET /api/analytics/ledger-lines?all=1  (full history; paginated server-side)
  */
 export const getLedgerLines = async (req: AuthenticatedRequest, res: Response): Promise<any> => {
   const userId = req.user!.id;
+  const all = req.query.all === 'true' || req.query.all === '1';
   const start = req.query.start as string;
   const end = req.query.end as string;
   const categoryId =
@@ -228,29 +230,47 @@ export const getLedgerLines = async (req: AuthenticatedRequest, res: Response): 
       ? req.query.category_id
       : undefined;
 
-  if (!start || !end || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
-    return res.status(400).json({ error: 'Query params start and end are required (YYYY-MM-DD)' });
+  if (
+    !all &&
+    (!start || !end || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end))
+  ) {
+    return res.status(400).json({
+      error: 'Use start & end (YYYY-MM-DD), or all=1 for every transaction.',
+    });
   }
 
-  let q = supabase
-    .from('transactions')
-    .select('id, transaction_date, type, amount, note, category_id, categories(name), parties(name)')
-    .eq('user_id', userId)
-    .gte('transaction_date', start)
-    .lte('transaction_date', end)
-    .order('transaction_date', { ascending: true })
-    .order('created_at', { ascending: true });
+  const pageSize = 1000;
+  const raw: any[] = [];
+  let offset = 0;
 
-  if (categoryId) q = q.eq('category_id', categoryId);
+  for (;;) {
+    let q = supabase
+      .from('transactions')
+      .select('id, transaction_date, type, amount, note, category_id, categories(name), parties(name, phone)')
+      .eq('user_id', userId)
+      .order('transaction_date', { ascending: true })
+      .order('created_at', { ascending: true })
+      .range(offset, offset + pageSize - 1);
 
-  const { data, error } = await q;
-  if (error) return res.status(400).json({ error: error.message });
+    if (!all) {
+      q = q.gte('transaction_date', start).lte('transaction_date', end);
+    }
+    if (categoryId) q = q.eq('category_id', categoryId);
 
-  const rows = (data || []).map((trx: any, idx: number) => {
+    const { data, error } = await q;
+    if (error) return res.status(400).json({ error: error.message });
+    const chunk = data || [];
+    raw.push(...chunk);
+    if (chunk.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  const rows = raw.map((trx: any, idx: number) => {
     const c = trx.categories;
     const p = trx.parties;
     const catName = (Array.isArray(c) ? c[0]?.name : c?.name) || '—';
     const partyName = (Array.isArray(p) ? p[0]?.name : p?.name) || '';
+    const partyPhone = (Array.isArray(p) ? p[0]?.phone : p?.phone) || '';
     return {
       row: idx + 1,
       date: String(trx.transaction_date).split('T')[0],
@@ -259,11 +279,22 @@ export const getLedgerLines = async (req: AuthenticatedRequest, res: Response): 
       amount: Number(trx.amount),
       note: trx.note || '',
       party: partyName,
+      party_phone: partyPhone,
     };
   });
 
+  let rangeOut: { start: string; end: string };
+  if (all && rows.length > 0) {
+    rangeOut = { start: rows[0].date, end: rows[rows.length - 1].date };
+  } else if (all) {
+    rangeOut = { start: '—', end: '—' };
+  } else {
+    rangeOut = { start: start!, end: end! };
+  }
+
   return res.status(200).json({
-    range: { start, end },
+    range: rangeOut,
+    all,
     expenses: rows.filter((r) => r.type === 'expense'),
     income: rows.filter((r) => r.type === 'income'),
     rows,
