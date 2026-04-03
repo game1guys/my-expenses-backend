@@ -1,4 +1,6 @@
 import nodemailer from 'nodemailer';
+import dns from 'dns/promises';
+import net from 'net';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -7,20 +9,57 @@ const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
 const smtpSecure =
   process.env.SMTP_SECURE === 'true' || process.env.SMTP_SECURE === '1' || smtpPort === 465;
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: smtpPort,
-  secure: smtpSecure,
-  connectionTimeout: 20_000,
-  greetingTimeout: 20_000,
-  socketTimeout: 35_000,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const smtpHostName = process.env.SMTP_HOST || 'smtp.gmail.com';
+
+/** Render (and some hosts) have broken IPv6 to Gmail; nodemailer randomly picks AAAA and fails. */
+const forceIpv4 =
+  process.env.SMTP_FORCE_IPV4 !== 'false' && process.env.SMTP_FORCE_IPV4 !== '0';
+
+let transporterPromise: Promise<nodemailer.Transporter> | null = null;
+
+async function createTransporter(): Promise<nodemailer.Transporter> {
+  let connectHost = smtpHostName;
+
+  if (forceIpv4 && !net.isIP(smtpHostName)) {
+    try {
+      const v4 = await dns.resolve4(smtpHostName);
+      if (v4?.length) {
+        connectHost = v4[Math.floor(Math.random() * v4.length)];
+        console.log(`[SMTP] Connecting via IPv4 ${connectHost} (hostname ${smtpHostName} for TLS/SNI)`);
+      }
+    } catch (e) {
+      console.warn('[SMTP] IPv4 resolve failed, using hostname:', e);
+    }
+  }
+
+  return nodemailer.createTransport({
+    host: connectHost,
+    port: smtpPort,
+    secure: smtpSecure,
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+    socketTimeout: 35_000,
+    requireTLS: !smtpSecure && smtpPort === 587,
+    tls: {
+      servername: smtpHostName,
+      minVersion: 'TLSv1.2' as const,
+    },
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+}
+
+function getTransporter(): Promise<nodemailer.Transporter> {
+  if (!transporterPromise) {
+    transporterPromise = createTransporter();
+  }
+  return transporterPromise;
+}
 
 export const sendReminderEmail = async (to: string, partyName: string, amount: number, senderName: string) => {
+  const transporter = await getTransporter();
   const mailOptions = {
     from: `"Daily-KHATA" <${process.env.SMTP_USER}>`,
     to,
@@ -56,6 +95,7 @@ export const sendOtpEmail = async (to: string, otp: string) => {
   if (!from) {
     throw new Error('SMTP_USER is not configured');
   }
+  const transporter = await getTransporter();
   const mailOptions = {
     from: `"Daily-KHATA" <${from}>`,
     to,
