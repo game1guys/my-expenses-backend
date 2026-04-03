@@ -11,6 +11,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  connectionTimeout: 12_000,
+  greetingTimeout: 12_000,
+  socketTimeout: 25_000,
 });
 
 export const sendOtpEmail = async (to: string, otp: string) => {

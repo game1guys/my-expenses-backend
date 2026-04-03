@@ -9,9 +9,18 @@ function generateOtp(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+const EMAIL_SEND_DEADLINE_MS = 28_000;
+
 export const sendForgotPasswordOtp = async (req: Request, res: Response): Promise<any> => {
   const email = (req.body?.email || '').trim().toLowerCase();
   if (!email) return res.status(400).json({ error: 'Email is required.' });
+
+  if (!process.env.SMTP_USER?.trim() || !process.env.SMTP_PASS?.trim()) {
+    console.error('[ForgotPassword] SMTP_USER / SMTP_PASS missing — cannot send OTP');
+    return res.status(503).json({
+      error: 'Password reset email is not configured on the server. Add SMTP_USER and SMTP_PASS to the backend environment.',
+    });
+  }
 
   // Look up user by email via admin API
   const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
@@ -27,10 +36,21 @@ export const sendForgotPasswordOtp = async (req: Request, res: Response): Promis
   otpStore.set(email, { otp, userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
 
   try {
-    await sendOtpEmail(email, otp);
+    await Promise.race([
+      sendOtpEmail(email, otp),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('EMAIL_SEND_TIMEOUT')), EMAIL_SEND_DEADLINE_MS),
+      ),
+    ]);
   } catch (e) {
+    otpStore.delete(email);
     console.error('[ForgotPassword] Email send failed:', e);
-    return res.status(500).json({ error: 'Failed to send OTP email. Please try again.' });
+    const timedOut = e instanceof Error && e.message === 'EMAIL_SEND_TIMEOUT';
+    return res.status(500).json({
+      error: timedOut
+        ? 'Sending the email took too long. Check SMTP settings and try again.'
+        : 'Failed to send OTP email. Please try again.',
+    });
   }
 
   return res.status(200).json({ message: 'If this email is registered, an OTP has been sent.' });
