@@ -1,5 +1,11 @@
 import { Router } from 'express';
-import { registerUser, loginUser, googleLoginUser, sendForgotPasswordOtp, resetPasswordWithOtp } from '../controllers/auth.controller';
+import {
+  registerUser,
+  loginUser,
+  googleLoginUser,
+  sendForgotPasswordOtp,
+  resetPasswordWithOtp,
+} from '../controllers/auth.controller';
 
 const router = Router();
 
